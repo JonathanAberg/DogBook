@@ -1,20 +1,45 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Make public directory available as static files
+app.use(express.static("public"));
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, "public/uploads");
+if (!fs.existsSync(uploadsDir)) {
+  console.log(`Creating uploads directory: ${uploadsDir}`);
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Configure multer for image uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+const upload = multer({ storage: storage });
+
 // Helper function for ObjectId validation
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+// Make uploads directory available as static resource
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
 // Connect to MongoDB
 mongoose
-  .connect("mongodb://localhost:27017/dogbook", {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+  .connect("mongodb://localhost:27017/dogBook", {})
   .then(() => {
     console.log("Connected to MongoDB");
   })
@@ -28,16 +53,21 @@ const dogSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  nickname: String,
+  nick: {
+    type: String,
+  },
   age: {
     type: Number,
     required: true,
     min: 1,
   },
+  present: {
+    type: Boolean,
+    default: false,
+  },
   bio: String,
-  imageUrl: String,
+  imagePath: String,
   friends: [{ type: mongoose.Schema.Types.ObjectId, ref: "Dog" }],
-  present: Boolean,
 });
 
 const Dog = mongoose.model("Dog", dogSchema);
@@ -55,59 +85,106 @@ app.get("/dogs", async (req, res) => {
 });
 
 app.get("/dogs/:id", async (req, res) => {
+  const { id } = req.params;
+
   try {
-    const dog = await Dog.findById(req.params.id).populate("friends");
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ message: "Ogiltigt hund-ID format" });
+    }
+
+    const dog = await Dog.findById(id).populate("friends");
     if (!dog) {
-      return res.status(404).json({ message: "Dog not found" });
+      return res.status(404).json({ message: "Hund hittades inte!" });
     }
     res.json(dog);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error fetching dog", error: error.message });
-  }
-});
-
-app.post("/dogs", async (req, res) => {
-  const { name, age, present } = req.body;
-
-  if (!name || name.trim() === "" || age === undefined || age <= 0) {
-    return res.status(400).json({ message: "Namn och ålder krävs!" });
-  }
-
-  try {
-    const newDog = new Dog({ name, age, present });
-    await newDog.save();
-    return res.status(201).json(newDog);
-  } catch (error) {
-    return res
-      .status(500)
-      .json({ message: "Error creating dog", error: error.message });
-  }
-});
-
-app.put("/dogs/:id", async (req, res) => {
-  try {
-    const updatedDog = await Dog.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
+    console.error("Error fetching dog:", error);
+    res.status(500).json({
+      message: "Fel vid hämtning av hund",
+      error: error.message,
     });
+  }
+});
+
+app.post("/dogs", upload.single("image"), async (req, res) => {
+  try {
+    const { name, nick, age, present, bio } = req.body;
+
+    // Validate required fields
+    if (!name || !age) {
+      return res.status(400).json({
+        message: "Missing required fields",
+      });
+    }
+
+    const newDog = new Dog({
+      name,
+      nick,
+      age: Number(age),
+      present: present === "true",
+      bio,
+      imagePath: req.file ? `/uploads/${req.file.filename}` : null,
+      friends: [],
+    });
+
+    const savedDog = await newDog.save();
+    res.status(201).json(savedDog);
+  } catch (error) {
+    console.error("Create error:", error);
+    res.status(500).json({
+      message: "Error creating dog",
+      error: error.message,
+    });
+  }
+});
+
+app.patch("/dogs/:id", upload.single("image"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, nick, nickname, age, present, bio } = req.body;
+
+    const updateData = {
+      name,
+      nick: nick || nickname,
+      age: Number(age),
+      present: present === "true",
+      bio,
+    };
+
+    // Only update the image path if a new image is uploaded
+    if (req.file) {
+      updateData.imagePath = `/uploads/${req.file.filename}`;
+    }
+
+    const updatedDog = await Dog.findByIdAndUpdate(id, updateData, {
+      new: true,
+    }).populate("friends");
+
     if (!updatedDog) {
       return res.status(404).json({ message: "Dog not found" });
     }
+
     res.json(updatedDog);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error updating dog", error: error.message });
+    console.error("Update error:", error);
+    res.status(500).json({
+      message: "Error updating dog",
+      error: error.message,
+    });
   }
 });
 
 app.delete("/dogs/:id", async (req, res) => {
   try {
-    const deletedDog = await Dog.findByIdAndDelete(req.params.id);
+    const { id } = req.params;
+    const deletedDog = await Dog.findByIdAndDelete(id);
     if (!deletedDog) {
       return res.status(404).json({ message: "Dog not found" });
     }
+
+    // Remove the deleted dog from all friends lists
+    await Dog.updateMany({ friends: id }, { $pull: { friends: id } });
+
     res.json({ message: "Dog deleted" });
   } catch (error) {
     res
@@ -119,13 +196,10 @@ app.delete("/dogs/:id", async (req, res) => {
 // Friend management routes
 app.patch("/dogs/:id/addFriend/:friendId", async (req, res) => {
   const { id, friendId } = req.params;
-  console.log("Attempting to add friend:", { id, friendId });
 
   if (!isValidObjectId(id) || !isValidObjectId(friendId)) {
-    console.log("Invalid ObjectId:", { id, friendId });
     return res.status(400).json({
       message: "Invalid ID format",
-      details: { dogId: id, friendId },
     });
   }
 
@@ -134,13 +208,8 @@ app.patch("/dogs/:id/addFriend/:friendId", async (req, res) => {
     const friend = await Dog.findById(friendId);
 
     if (!dog || !friend) {
-      console.log("Dog or friend not found:", {
-        dogExists: !!dog,
-        friendExists: !!friend,
-      });
       return res.status(404).json({
         message: "Dog or friend not found",
-        details: { dogId: id, friendId },
       });
     }
 
@@ -148,7 +217,6 @@ app.patch("/dogs/:id/addFriend/:friendId", async (req, res) => {
     if (dog.friends.includes(friendId)) {
       return res.status(400).json({
         message: "Already friends",
-        details: { dogId: id, friendId },
       });
     }
 
@@ -162,7 +230,6 @@ app.patch("/dogs/:id/addFriend/:friendId", async (req, res) => {
     // Populate and return updated dog
     const updatedDog = await dog.populate("friends");
 
-    console.log("Friend added successfully");
     res.json({
       message: "Vänskap skapad!",
       dog: updatedDog,
@@ -172,7 +239,6 @@ app.patch("/dogs/:id/addFriend/:friendId", async (req, res) => {
     res.status(500).json({
       message: "Error adding friend",
       error: error.message,
-      stack: error.stack,
     });
   }
 });
@@ -183,7 +249,6 @@ app.patch("/dogs/:id/removeFriend/:friendId", async (req, res) => {
   if (!isValidObjectId(id) || !isValidObjectId(friendId)) {
     return res.status(400).json({
       message: "Invalid ID format",
-      details: { dogId: id, friendId },
     });
   }
 

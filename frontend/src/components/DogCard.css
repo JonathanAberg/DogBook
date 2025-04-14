@@ -1,0 +1,103 @@
+/* Style for the dog card component */
+.dog-card {
+  position: relative;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease;
+}
+
+/* Present dog - green border */
+.dog-card.present {
+  border-color: #4caf50;
+  box-shadow: 0 3px 6px rgba(76, 175, 80, 0.3);
+}
+
+/* Absent dog - red border */
+.dog-card.absent {
+  border-color: #f22c2c;
+}
+
+/* Status indicator dot */
+.status-indicator {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+}
+
+.present .status-indicator {
+  background-color: #4caf50;
+  box-shadow: 0 0 5px rgba(76, 175, 80, 0.7);
+  animation: pulse 2s infinite;
+}
+
+.absent .status-indicator {
+  background-color: #f22c2c;
+}
+
+/* Pulsing animation for present dogs */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(76, 175, 80, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
+  }
+}
+
+.dog-card:hover {
+  transform: translateY(-5px);
+}
+
+.dog-card a {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+
+/* Container to maintain consistent dimensions */
+.dog-image-container {
+  width: 100%;
+  height: 200px;
+  overflow: hidden;
+  position: relative;
+  background-color: #f5f5f5; /* Light background for empty space */
+}
+
+/* Style for the dog profile image */
+.dog-profile-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* Preserves aspect ratio while filling the container */
+  object-position: center;
+}
+
+.dog-card h2 {
+  padding: 10px 15px;
+  margin: 0;
+  font-size: 1.2rem;
+  color: #333;
+}
+
+.delete-btn {
+  width: 100%;
+  padding: 8px;
+  background-color: #ff4757;
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.delete-btn:hover {
+  background-color: #ff6b81;
+}
